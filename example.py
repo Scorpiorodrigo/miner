@@ -114,8 +114,8 @@ def ao_finalizar_aposta(streamer_name, bet_object: Bet, ganhou: bool, saldo_fina
             percentage_gap=20,                  # Gap difference between outcomesA and outcomesB (for SMART strategy)
             max_points=5000,                   # If the x percentage of your channel points is gt bet_max_points set this value
             stealth_mode=True,                  # If the calculated amount of channel points is GT the highest bet, place the highest value minus 1-2 points Issue #33
-            delay_mode=DelayMode.PERCENTAGE,      # When placing a bet, we will wait until `delay` seconds before the end of the timer
-            delay=0.9,
+            delay_mode=DelayMode.percentage,      # When placing a bet, we will wait until `delay` seconds before the end of the timer
+            delay=90,
             minimum_points=2000,               # Place the bet only if we have at least 20k points. Issue #113
             filter_condition=FilterCondition(
                 by=OutcomeKeys.TOTAL_POINTS,     # Where apply the filter. Allowed [PERCENTAGE_USERS, ODDS_PERCENTAGE, ODDS, TOP_POINTS, TOTAL_USERS, TOTAL_POINTS]
