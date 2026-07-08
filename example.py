@@ -14,6 +14,8 @@ from TwitchChannelPointsMiner.classes.Gotify import Gotify
 from TwitchChannelPointsMiner.classes.Settings import Priority, Events, FollowersOrder
 from TwitchChannelPointsMiner.classes.entities.Bet import Strategy, BetSettings, Condition, OutcomeKeys, FilterCondition, DelayMode
 from TwitchChannelPointsMiner.classes.entities.Streamer import Streamer, StreamerSettings
+from TwitchChannelPointsMiner.classes.entities.Bet import Bet
+from TwitchChannelPointsMiner.classes.Whatsapp import Whatsapp
 
 twitch_miner = TwitchChannelPointsMiner(
     username="your-twitch-username",
@@ -49,6 +51,23 @@ twitch_miner = TwitchChannelPointsMiner(
                     Events.BET_LOSE, Events.CHAT_MENTION],                          # Only these events will be sent to the chat
             disable_notification=True,                                              # Revoke the notification (sound/vibration)
         ),
+        # 1. Inicialize a sua configuração do WhatsApp
+# O número do telefone deve conter o código do país + DDD + Número (Ex: 5567999999999)
+whatsapp_notifier = Whatsapp(phone="55XXXXXXXXXXX", apikey="SUA_API_KEY_AQUI")
+
+# 2. Dentro da função que captura o término da aposta no seu script:
+def ao_finalizar_aposta(streamer_name, bet_object: Bet, ganhou: bool, saldo_final: int):
+    # Pega os dados da última decisão tomada
+    decisao = bet_object.get_decision()
+    
+    # Dispara a mensagem para o seu celular
+    whatsapp_notifier.send_bet_result(
+        streamer=streamer_name,
+        choice_title=decisao['title'],
+        amount=bet_object.decision['amount'],
+        win=ganhou,
+        total_points=saldo_final
+    ),
         discord=Discord(
             webhook_api="https://discord.com/api/webhooks/0123456789/0a1B2c3D4e5F6g7H8i9J",  # Discord Webhook URL
             events=[Events.STREAMER_ONLINE, Events.STREAMER_OFFLINE,
