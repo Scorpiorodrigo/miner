@@ -14,6 +14,7 @@ class Strategy(Enum):
     PERCENTAGE = auto()
     SMART_MONEY = auto()
     SMART = auto()
+    DYNAMIC_VALUED_RISK = auto()  # <--- Nova estratégia avançada adicionada
     NUMBER_1 = auto()
     NUMBER_2 = auto()
     NUMBER_3 = auto()
@@ -112,7 +113,7 @@ class BetSettings(object):
         self.delay_mode = delay_mode
 
     def default(self):
-        self.strategy = self.strategy if self.strategy is not None else Strategy.SMART
+        self.strategy = self.strategy if self.strategy is not None else Strategy.DYNAMIC_VALUED_RISK # Definido como novo padrão
         self.percentage = self.percentage if self.percentage is not None else 5
         self.percentage_gap = (
             self.percentage_gap if self.percentage_gap is not None else 20
@@ -233,9 +234,6 @@ class Bet(object):
                 if key not in self.outcomes[index]:
                     self.outcomes[index][key] = 0
 
-    '''def __return_choice(self, key) -> str:
-        return "A" if self.outcomes[0][key] > self.outcomes[1][key] else "B"'''
-
     def __return_choice(self, key) -> int:
         largest=0
         for index in range(0, len(self.outcomes)):
@@ -251,7 +249,6 @@ class Bet(object):
 
     def skip(self) -> bool:
         if self.settings.filter_condition is not None:
-            # key == by , condition == where
             key = self.settings.filter_condition.by
             condition = self.settings.filter_condition.where
             value = self.settings.filter_condition.value
@@ -266,11 +263,9 @@ class Bet(object):
                     self.outcomes[0][fixed_key] + self.outcomes[1][fixed_key]
                 )
             else:
-                #outcome_index = char_decision_as_index(self.decision["choice"])
                 outcome_index = self.decision["choice"]
                 compared_value = self.outcomes[outcome_index][fixed_key]
 
-            # Check if condition is satisfied
             if condition == Condition.GT:
                 if compared_value > value:
                     return False, compared_value
@@ -283,12 +278,13 @@ class Bet(object):
             elif condition == Condition.LTE:
                 if compared_value <= value:
                     return False, compared_value
-            return True, compared_value  # Else skip the bet
+            return True, compared_value
         else:
-            return False, 0  # Default don't skip the bet
+            return False, 0
 
     def calculate(self, balance: int) -> dict:
         self.decision = {"choice": None, "amount": 0, "id": None}
+        
         if self.settings.strategy == Strategy.MOST_VOTED:
             self.decision["choice"] = self.__return_choice(OutcomeKeys.TOTAL_USERS)
         elif self.settings.strategy == Strategy.HIGH_ODDS:
@@ -323,15 +319,74 @@ class Bet(object):
                 if difference < self.settings.percentage_gap
                 else self.__return_choice(OutcomeKeys.TOTAL_USERS)
             )
+            
+        # =====================================================================
+        # IMPLEMENTAÇÃO DA NOVA ESTRATÉGIA: DYNAMIC_VALUED_RISK
+        # =====================================================================
+        elif self.settings.strategy == Strategy.DYNAMIC_VALUED_RISK:
+            # Se só houver uma opção válida, escolhe ela
+            if len(self.outcomes) < 2:
+                self.decision["choice"] = 0
+            else:
+                best_score = -1000
+                chosen_index = 0
+                
+                for index in range(len(self.outcomes)):
+                    # 1. Fator Smart Money: Avalia se os maiores apostadores confiam nessa opção
+                    top_points = self.outcomes[index].get(OutcomeKeys.TOP_POINTS, 0)
+                    total_points = max(self.outcomes[index].get(OutcomeKeys.TOTAL_POINTS, 1), 1)
+                    smart_money_ratio = top_points / total_points
+                    
+                    # 2. Fator de Assimetria de Valor: Relação entre a Odd obtida e a quantidade de pessoas votando
+                    # Se pouca gente votou mas há muitos pontos ali (ou vice-versa), a Odd pode estar desajustada
+                    odds = self.outcomes[index].get(OutcomeKeys.ODDS, 1.0)
+                    user_percentage = self.outcomes[index].get(OutcomeKeys.PERCENTAGE_USERS, 50.0) / 100.0
+                    
+                    # Valor esperado implícito simplificado
+                    value_score = odds * user_percentage
+                    
+                    # Pontuação combinada ponderada
+                    # Dá peso para a preferência do Smart Money e pune cenários onde a recompensa (odds) é ridiculamente baixa para o risco
+                    score = (smart_money_ratio * 40) + (value_score * 60)
+                    
+                    # Proteção contra "Zebras Impossíveis" (Menos de 15% dos votos gerais), 
+                    # a menos que o Smart Money esteja massivamente nela
+                    if user_percentage < 0.15 and smart_money_ratio < 0.4:
+                        score -= 50
+                        
+                    if score > best_score:
+                        best_score = score
+                        chosen_index = index
+                        
+                self.decision["choice"] = chosen_index
+        # =====================================================================
 
         if self.decision["choice"] is not None:
-            #index = char_decision_as_index(self.decision["choice"])
             index = self.decision["choice"]
             self.decision["id"] = self.outcomes[index]["id"]
-            self.decision["amount"] = min(
-                int(balance * (self.settings.percentage / 100)),
-                self.settings.max_points,
-            )
+            
+            # Ajuste dinâmico do tamanho da aposta com base na estratégia escolhida
+            if self.settings.strategy == Strategy.DYNAMIC_VALUED_RISK:
+                # Se a aposta for considerada muito segura (votos > 70%), arrisca um pouco mais do percentual estipulado
+                if self.outcomes[index][OutcomeKeys.PERCENTAGE_USERS] > 70:
+                    multiplier = 1.2
+                # Se for uma aposta de maior risco (zebra com valor), diminui a mão pela metade para proteger a banca
+                elif self.outcomes[index][OutcomeKeys.PERCENTAGE_USERS] < 35:
+                    multiplier = 0.5
+                else:
+                    multiplier = 1.0
+                
+                calculated_percentage = (self.settings.percentage * multiplier) / 100
+                self.decision["amount"] = min(
+                    int(balance * calculated_percentage),
+                    self.settings.max_points,
+                )
+            else:
+                self.decision["amount"] = min(
+                    int(balance * (self.settings.percentage / 100)),
+                    self.settings.max_points,
+                )
+                
             if (
                 self.settings.stealth_mode is True
                 and self.decision["amount"]
